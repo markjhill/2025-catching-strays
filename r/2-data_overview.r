@@ -11,6 +11,8 @@ library(cowplot)
 library(scales) 
 library(effectsize) 
 library(effsize) 
+library(patchwork)
+
 
 # 'not in' operator
 '%!in%' <- function(x, y) !('%in%'(x, y))
@@ -102,9 +104,9 @@ table(merged_df$current_result[match_locs])
 ##############################################################################
 
 # Load lexicons and toxicity scores (sources in paper)
-bad_words <- read.csv("../Datasets/list_of_naughty-OaOBW_en.csv") # Loaded but not directly used later for matching in this script
-hate_speech_lexicon <- read.csv("../Datasets/refined_ngram_dict.csv") # Used for filtering
-toxic_df_raw <- readr::read_csv("../Datasets/toxic_results_updated.csv") # Dataset with toxicity scores
+bad_words <- read.csv("../Datasets/list_of_naughty-OaOBW_en.csv") 
+hate_speech_lexicon <- read.csv("../Datasets/refined_ngram_dict.csv") 
+toxic_df_raw <- readr::read_csv("../Datasets/toxic_results_updated.csv") 
 
 # Prepare toxic_df (posts scored for toxicity)
 toxic_df <- toxic_df_raw %>%
@@ -120,7 +122,7 @@ normalize_toxicity <- function(x) {
 toxic_df$toxicity_scaled <- normalize_toxicity(toxic_df$toxicity_score)
 
 # Filter for posts with negative toxicity scores (as per original script)
-# The paper mentions "Only 10% of our corpus was tested with ToxicityModel" (Source [64] in PDF)
+# The paper applies this to only 10% of our corpus (it's computationally heavy) 
 # This filtered_data is what's used as the "Toxic" category later.
 filtered_toxic_data <- toxic_df %>%
   filter(toxicity_score < 0)
@@ -131,8 +133,7 @@ correlation_toxicity_sentiment <- cor(filtered_toxic_data$toxicity_scaled, filte
 print(paste("Spearman correlation (toxicity_scaled vs llm_score) for toxic_score < 0 subset:", round(correlation_toxicity_sentiment, 3)))
 
 # Load posts with text for hate speech matching
-# posts_w_text <- readRDS("../Datasets/QTA_data/") # Original, commented out
-posts_w_text <- readRDS("../Datasets/sentiment_score/all_fc_merged_24_09_02.RDS")
+posts_w_text <- readRDS("../Datasets/sentiment_score/all_fc_merged_24_09_02.RDS") # this data is not available, but is the FC subreddits with sentiment scores
 print(paste("Number of posts loaded for hate speech matching (posts_w_text):", nrow(posts_w_text)))
 
 
@@ -148,9 +149,12 @@ print(paste("Size of original hate speech lexicon:", nrow(hate_speech_lexicon)))
 print(paste("Size of filtered hate speech lexicon:", nrow(filtered_hate_speech_lexicon)))
 
 
-# Matching hate speech terms in posts
-# Time-consuming matching process commented out, and instead pre-matched RDS files are loaded.
+# Matching problematic speech terms in posts
 
+# Time-consuming matching process commented out, and instead pre-matched RDS files are loaded.
+# If running for first time ensure you uncomment and run the matching process below
+
+# Matching hate speech
 # pattern_hate_speech <- paste0(filtered_hate_speech_lexicon$ngram, collapse = "|")
 # DT_large <- as.data.table(posts_w_text)
 # Sys.time()
@@ -160,24 +164,25 @@ print(paste("Size of filtered hate speech lexicon:", nrow(filtered_hate_speech_l
 matches_hate_speech <- readRDS(file = "../Datasets/matched_hate_speech.RDS")
 print(paste("Number of posts matched for potential hate speech:", nrow(matches_hate_speech)))
 
-# Assuming matches2 is for obscene words, based on plot labels later
-# The source of matches2 (e.g. which lexicon was used) is not explicitly in this script,
-# but it's loaded from an RDS. For clarity, if this corresponds to `list_of_naughty-OaOBW_en.csv`,
-# it might be good to have a similar (commented out) matching block or a note.
+# Matching obscene words
+# pattern_obscene_speech <- paste0(bad_words$X2g1c, collapse = "|")
+# DT_large <- as.data.table(posts_w_text)
+# Sys.time()
+# matches_hate_speech <- DT_large[grepl(pattern_obscene_speech, body, ignore.case = TRUE)] # Added ignore.case
+# Sys.time() # Original script notes this took ~1 hour
+# saveRDS(matches_hate_speech, file = "../Datasets/matched_hate_speech2.RDS")
+
 matches_obscene_words <- readRDS(file = "../Datasets/matched_hate_speech2.RDS") # Renamed for clarity
 print(paste("Number of posts matched for obscene words:", nrow(matches_obscene_words)))
 
-
-# Sample data for comparison (this seems to be the 'toxic_df' which was already scored for toxicity)
-# The paper states "Only 10% of our corpus was tested with ToxicityModel" for the "Toxic" category.
-# The "Sample" for comparison in the plots seems to be this `toxic_df`.
+# Toxic data from sample
 sample_data_for_plots <- toxic_df # Renamed for clarity. Used as "Sample" in plots.
 print(paste("Number of posts in sample_data_for_plots (used as 'Sample'):", nrow(sample_data_for_plots)))
 
+##############################################################################
+# Prepare Data for Comparative Density Plots
+##############################################################################
 
-# -----------------------------------------------------------------------------
-# 5. Prepare Data for Comparative Density Plots
-# -----------------------------------------------------------------------------
 hate_data <- matches_hate_speech %>%
   select(llm_score) %>%
   mutate(dataset = "Potential Hate Speech") %>%
@@ -218,10 +223,9 @@ hate_mean <- means$mean_llm_score[means$Dataset == "Potential Hate Speech"]
 badword_mean <- means$mean_llm_score[means$Dataset == "Obscene Words"]
 toxic_mean <- means$mean_llm_score[means$Dataset == "Toxic"]
 
-# -----------------------------------------------------------------------------
-# 6. Statistical Tests (KS-test and Cliff's Delta)
-# -----------------------------------------------------------------------------
-set.seed(123) # For reproducibility if any sampling were involved (not here, but good practice)
+##############################################################################
+# Statistical Tests (KS-test and Cliff's Delta)
+##############################################################################
 
 # Kolmogorov-Smirnov tests
 ks_test_hate <- ks.test(hate_data$llm_score, sample_plot_data$llm_score)
@@ -229,13 +233,16 @@ ks_test_badword <- ks.test(badword_data$llm_score, sample_plot_data$llm_score)
 ks_test_toxic <- ks.test(toxic_data_plot$llm_score, sample_plot_data$llm_score)
 
 # Cliff's Delta for effect size
+# This takes a long time (tens of minutes)
+# Note: integer overflows occured (for me) in Positron but no rstudio
 cliffs_d_hate <- cliff.delta(hate_data$llm_score, sample_plot_data$llm_score)
 cliffs_d_badword <- cliff.delta(badword_data$llm_score, sample_plot_data$llm_score)
 cliffs_d_toxic <- cliff.delta(toxic_data_plot$llm_score, sample_plot_data$llm_score)
 
-# -----------------------------------------------------------------------------
-# 7. Generate and Save Density Plots
-# -----------------------------------------------------------------------------
+##############################################################################
+# Generate and Save Density Plots
+##############################################################################
+
 # Define a common theme for plots for consistency
 plot_theme_density <- theme_minimal(base_size = 12) +
   theme(
@@ -280,7 +287,9 @@ density_badword <- create_density_plot(
   fill_colors = c("Obscene Words" = "gray30", "Sample" = "gray70")
 )
 print(density_badword)
-ggsave("../acl_paper/sentiment_bw_density_badwords.svg", density_badword, width = 7, height = 5)
+
+#
+#ggsave("../acl_paper/sentiment_bw_density_badwords.svg", density_badword, width = 7, height = 5)
 
 
 # Plot for Potential Hate Speech
@@ -294,7 +303,7 @@ density_hate <- create_density_plot(
   fill_colors = c("Potential Hate Speech" = "gray30", "Sample" = "gray70")
 )
 print(density_hate)
-ggsave("../acl_paper/sentiment_bw_density_hate.svg", density_hate, width = 7, height = 5)
+#ggsave("../acl_paper/sentiment_bw_density_hate.svg", density_hate, width = 7, height = 5)
 
 # Plot for Toxic Posts
 # Ensure correct factor levels for plotting if needed (original script did this)
@@ -312,28 +321,30 @@ density_toxic <- create_density_plot(
   fill_colors = c("Toxic" = "gray30", "Sample" = "gray70")
 )
 print(density_toxic)
-ggsave("../acl_paper/sentiment_bw_density_toxic.svg", density_toxic, width = 7, height = 5)
+#ggsave("../acl_paper/sentiment_bw_density_toxic.svg", density_toxic, width = 7, height = 5)
 
 
-# -----------------------------------------------------------------------------
-# 8. Combine Plots for Publication (as per Figure 1 in the paper)
-# -----------------------------------------------------------------------------
-# Version 1: Combined plot without individual legends (as in original script for combined_density_plots.svg)
+##############################################################################
+# Combine Plots for Publication (as per Figure 1 in the paper)
+##############################################################################
+
+# Version 1: Combined plot without individual legends 
 density_hate_no_legend <- density_hate + theme(legend.position = "none")
 density_badword_no_legend <- density_badword + theme(legend.position = "none")
 # Original script had a custom way to remove one legend item for toxic plot,
 # if the goal is simply no legend, theme(legend.position = "none") is simpler.
 density_toxic_no_legend <- density_toxic + theme(legend.position = "none")
 
-combined_plot_no_legends <- density_hate_no_legend / density_badword_no_legend / density_toxic_no_legend +
-  plot_layout(ncol = 1) +
+combined_plot_no_legends <- 
+  (density_hate_no_legend | density_badword_no_legend | density_toxic_no_legend) +
+  plot_layout(nrow = 3) +
   plot_annotation(theme = theme(plot.margin = margin(5, 5, 5, 5)))
 
 print(combined_plot_no_legends)
-ggsave("../acl_paper/combined_density_plots.svg", combined_plot_no_legends, width = 4, height = 8)
+#ggsave("../acl_paper/combined_density_plots.svg", combined_plot_no_legends, width = 4, height = 8)
 
 
-# Version 2: Combined plot with legends in corner (modified from original script for clarity)
+# Version 2: Combined plot with legends in corner 
 # Re-create plots with modified titles (shorter category names for legend) and legend placement
 # Data preparation for shorter legend names
 combined_data_short_legend <- combined_plot_data %>%
@@ -401,17 +412,20 @@ density_toxic_corner <- create_density_plot_corner(
   c("Toxic" = "gray30", "Sample" = "gray70")
 )
 
-combined_plot_with_legends <- density_hate_corner / density_badword_corner / density_toxic_corner +
-  plot_layout(ncol = 1) +
+combined_plot_with_legends <- 
+  (density_hate_corner + 
+   density_badword_corner + 
+   density_toxic_corner) + 
+  plot_layout(ncol = 1, nrow = 3) +
   plot_annotation(theme = theme(plot.margin = margin(5, 5, 5, 5)))
 
 print(combined_plot_with_legends)
-ggsave("../acl_paper/combined_density_plots_with_legend.svg", combined_plot_with_legends, width = 4, height = 8)
+#ggsave("../acl_paper/combined_density_plots_with_legend.svg", combined_plot_with_legends, width = 4, height = 8)
 
 
-# -----------------------------------------------------------------------------
-# 9. Create and Print Summary Statistics Table (matches Table 3 in the paper)
-# -----------------------------------------------------------------------------
+##############################################################################
+# Create and Print Summary Statistics Table (matches Table 3 in the paper)
+##############################################################################
 # Using the already calculated means and the *_data dataframes for n, median, sd
 # FC Corpus data from initial merged_df
 fc_corpus_mean <- mean(merged_df$llm_score, na.rm = TRUE)
@@ -451,4 +465,3 @@ summary_stats_table <- data.frame(
 print("--- Summary Statistics Table (Sentiment Scores) ---")
 print(summary_stats_table)
 
-# End of script
