@@ -101,388 +101,6 @@ merged_df$non_club_sentiment_index <-
 
 ###
 
-# ####
-# # check if monotonic for kendall
-
-
-# # Using the provided is_kendall_monotonic_fast function - base is too slow
-# is_kendall_monotonic_fast <- function(x, y, sample_size = NULL, show_progress = TRUE) {
-#   n <- length(x)
-  
-#   # For very large datasets, consider sampling
-#   if(!is.null(sample_size) && n > sample_size) {
-#     message("Using random sampling of ", sample_size, " pairs from ", n, " total")
-#     idx <- sample(n, sample_size)
-#     x <- x[idx]
-#     y <- y[idx]
-#     n <- sample_size
-#   }
-  
-#   # Initialize progress bar if requested
-#   if(show_progress) {
-#     pb <- txtProgressBar(min = 0, max = 10, style = 3, width = 50)
-#   }
-  
-#   # Process in chunks for progress reporting
-#   chunk_size <- ceiling(n/10)
-#   result <- NULL
-  
-#   # Use faster implementation for large datasets
-#   if(n > 10000) {
-#     # Load the pcaPP package which has a faster implementation
-#     if(!requireNamespace("pcaPP", quietly = TRUE)) {
-#       install.packages("pcaPP")
-#       library(pcaPP)
-#     } else {
-#       library(pcaPP)
-#     }
-    
-#     # Update progress for pre-processing
-#     if(show_progress) setTxtProgressBar(pb, 1)
-    
-#     # Use fast Kendall from pcaPP package
-#     kt <- pcaPP::cor.fk(x, y)
-    
-#     # Update progress to completion
-#     if(show_progress) setTxtProgressBar(pb, 10)
-    
-#     # Calculate p-value (approximate for large samples)
-#     z <- 3 * kt * sqrt(n * (n-1)) / sqrt(2 * (2*n + 5))
-#     p_val <- 2 * pnorm(-abs(z))
-    
-#   } else {
-#     # For smaller datasets, use standard implementation with progress updates
-#     for(i in 1:10) {
-#       if(show_progress) setTxtProgressBar(pb, i)
-#       if(i == 10) {
-#         # On last chunk, calculate the full correlation
-#         result <- cor.test(x, y, method = "kendall")
-#       }
-#     }
-    
-#     kt <- result$estimate
-#     p_val <- result$p.value
-#   }
-  
-#   if(show_progress) close(pb)
-  
-#   list(
-#     kendall_tau = kt,
-#     p_value = p_val,
-#     significant_monotonic = p_val < 0.05 & abs(kt) > 0,
-#     direction = ifelse(kt > 0, "increasing", 
-#                        ifelse(kt < 0, "decreasing", "none"))
-#   )
-# }
-
-# # Create a table of results using is_kendall_monotonic_fast
-# analyze_sentiment_data <- function(merged_df, show_progress = FALSE) {
-#   # Initialize empty list to store results
-#   results <- list()
-  
-#   # Define data subsets (ALL, DURING MATCH, NOT DURING MATCH)
-#   subsets <- list(
-#     "ALL DATA" = rep(TRUE, nrow(merged_df)),
-#     "DURING MATCH" = merged_df$during_match == TRUE,
-#     "NOT DURING MATCH" = merged_df$during_match == FALSE
-#   )
-  
-#   # Define sentiment filters
-#   sentiment_filters <- list(
-#     "ALL SENTIMENTS" = rep(TRUE, nrow(merged_df)),
-#     "DROP NEUTRAL" = merged_df$club_overall_sent != "neutral",
-#     "ONLY POSITIVE" = merged_df$club_overall_sent == "positive",
-#     "ONLY NEGATIVE" = merged_df$club_overall_sent == "negative"
-#   )
-  
-#   # Create a results table
-#   for (subset_name in names(subsets)) {
-#     subset_mask <- subsets[[subset_name]]
-    
-#     for (filter_name in names(sentiment_filters)) {
-#       filter_mask <- sentiment_filters[[filter_name]]
-      
-#       # Combine masks to get final selection
-#       final_mask <- subset_mask & filter_mask
-      
-#       # Skip if insufficient data points
-#       if (sum(final_mask) < 3) {
-#         results[[paste(subset_name, filter_name, sep = "_")]] <- list(
-#           kendall_tau = NA,
-#           p_value = NA,
-#           significant_monotonic = NA,
-#           direction = NA,
-#           sample_size = sum(final_mask),
-#           note = "Insufficient data"
-#         )
-#         next
-#       }
-      
-#       # Get data for the current subset and filter
-#       club_sent <- merged_df$club_sent_cat[final_mask]
-#       non_club_sent <- merged_df$non_club_sent_cat[final_mask]
-      
-#       # Calculate Kendall's tau using the fast method
-#       analysis_result <- is_kendall_monotonic_fast(club_sent, non_club_sent, show_progress = show_progress)
-#       analysis_result$sample_size <- sum(final_mask)
-#       results[[paste(subset_name, filter_name, sep = "_")]] <- analysis_result
-#     }
-#   }
-  
-#   # Convert results to a data frame for easier viewing
-#   result_df <- data.frame(
-#     Subset = character(),
-#     Sentiment_Filter = character(),
-#     Kendalls_Tau = numeric(),
-#     P_Value = numeric(),
-#     Significant = logical(),
-#     Direction = character(),
-#     Sample_Size = integer(),
-#     Note = character(),
-#     stringsAsFactors = FALSE
-#   )
-  
-#   for (key in names(results)) {
-#     parts <- strsplit(key, "_", fixed = TRUE)[[1]]
-#     subset_name <- parts[1]
-#     if (length(parts) > 2) {
-#       subset_name <- paste(parts[1], parts[2], sep = "_")
-#       filter_name <- paste(parts[3:length(parts)], collapse = "_")
-#     } else {
-#       filter_name <- parts[2]
-#     }
-    
-#     result_df <- rbind(result_df, data.frame(
-#       Subset = subset_name,
-#       Sentiment_Filter = filter_name,
-#       Kendalls_Tau = results[[key]]$kendall_tau,
-#       P_Value = results[[key]]$p_value,
-#       Significant = results[[key]]$significant_monotonic,
-#       Direction = results[[key]]$direction,
-#       Sample_Size = results[[key]]$sample_size,
-#       Note = ifelse(is.null(results[[key]]$note), "", results[[key]]$note),
-#       stringsAsFactors = FALSE
-#     ))
-#   }
-  
-#   return(result_df)
-# }
-
-# # Example usage:
-# # results_table <- analyze_sentiment_data(merged_df)
-# # print(results_table)
-
-
-# cor(merged_df$club_weighted_average_sent, merged_df$non_club_weighted_average_sent)
-
-# # Example
-# #is_kendall_monotonic(merged_df$club_weighted_average_sent, merged_df$non_club_weighted_average_sent)
-# is_kendall_monotonic_fast(merged_df$club_weighted_average_sent, merged_df$non_club_weighted_average_sent)
-
-# # there is 0.07904096 for all times, p < 0
-
-# is_kendall_monotonic_fast(merged_df$club_weighted_average_sent[which(merged_df$during_match == FALSE)], 
-#                           merged_df$non_club_weighted_average_sent[which(merged_df$during_match == FALSE)])
-
-# # weaker when there is no match (.053489)
-
-# is_kendall_monotonic_fast(merged_df$club_weighted_average_sent[which(merged_df$during_match == TRUE)], 
-#                           merged_df$non_club_weighted_average_sent[which(merged_df$during_match == TRUE)])
-
-
-# # stronger during! 0.1096, p <0 
-
-# ### create a ranked numeric for sentiment, rather than the prob index
-
-# merged_df$club_sent_cat <- NA  
-# merged_df$club_sent_cat[which(merged_df$club_overall_sent == "positive")] <- 3
-# merged_df$club_sent_cat[which(merged_df$club_overall_sent == "neutral")] <- 2
-# merged_df$club_sent_cat[which(merged_df$club_overall_sent == "negative")] <- 1
-
-# merged_df$non_club_sent_cat <- NA  
-# merged_df$non_club_sent_cat[which(merged_df$non_club_overall_sent == "positive")] <- 3
-# merged_df$non_club_sent_cat[which(merged_df$non_club_overall_sent == "neutral")] <- 2
-# merged_df$non_club_sent_cat[which(merged_df$non_club_overall_sent == "negative")] <- 1
-
-# cor(merged_df$club_sent_cat, merged_df$non_club_sent_cat,
-#     method = "spearman")
-
-# # Example
-# #is_kendall_monotonic(merged_df$club_weighted_average_sent, merged_df$non_club_weighted_average_sent)
-# is_kendall_monotonic_fast(merged_df$club_sent_cat, merged_df$non_club_sent_cat)
-
-# # Individual analyses (using is_kendall_monotonic_fast as requested):
-
-# # ALL DATA
-# all_data_result <- is_kendall_monotonic_fast(merged_df$club_sent_cat, merged_df$non_club_sent_cat)
-# cat("ALL DATA: Kendall's tau =", all_data_result$kendall_tau, 
-#     ", p-value =", all_data_result$p_value, 
-#     ", Significant =", all_data_result$significant_monotonic,
-#     ", Direction =", all_data_result$direction, "\n")
-
-# # NOT DURING MATCH
-# not_during_mask <- merged_df$during_match == FALSE
-# not_during_result <- is_kendall_monotonic_fast(
-#   merged_df$club_sent_cat[not_during_mask], 
-#   merged_df$non_club_sent_cat[not_during_mask]
-# )
-# cat("NOT DURING MATCH: Kendall's tau =", not_during_result$kendall_tau, 
-#     ", p-value =", not_during_result$p_value, 
-#     ", Significant =", not_during_result$significant_monotonic,
-#     ", Direction =", not_during_result$direction, "\n")
-
-# # DURING MATCH
-# during_mask <- merged_df$during_match == TRUE
-# during_result <- is_kendall_monotonic_fast(
-#   merged_df$club_sent_cat[during_mask], 
-#   merged_df$non_club_sent_cat[during_mask]
-# )
-# cat("DURING MATCH: Kendall's tau =", during_result$kendall_tau, 
-#     ", p-value =", during_result$p_value, 
-#     ", Significant =", during_result$significant_monotonic,
-#     ", Direction =", during_result$direction, "\n")
-
-# # Generate comprehensive results table
-# results_table <- analyze_sentiment_data(merged_df)
-
-# # Display the results
-# print(results_table)
-
-# # Additional analyses for the specific subsets you requested
-
-# # DROP ALL NEUTRAL (ALL DATA)
-# non_neutral_mask <- merged_df$club_overall_sent != "neutral"
-# non_neutral_result <- is_kendall_monotonic_fast(
-#   merged_df$club_sent_cat[non_neutral_mask], 
-#   merged_df$non_club_sent_cat[non_neutral_mask]
-# )
-# cat("DROP ALL NEUTRAL (ALL DATA): Kendall's tau =", non_neutral_result$kendall_tau, 
-#     ", p-value =", non_neutral_result$p_value, 
-#     ", Significant =", non_neutral_result$significant_monotonic,
-#     ", Direction =", non_neutral_result$direction, "\n")
-
-# # ONLY POSITIVE (ALL DATA)
-# positive_mask <- merged_df$club_overall_sent == "positive"
-# positive_result <- is_kendall_monotonic_fast(
-#   merged_df$club_sent_cat[positive_mask], 
-#   merged_df$non_club_sent_cat[positive_mask]
-# )
-# cat("ONLY POSITIVE (ALL DATA): Kendall's tau =", positive_result$kendall_tau, 
-#     ", p-value =", positive_result$p_value, 
-#     ", Significant =", positive_result$significant_monotonic,
-#     ", Direction =", positive_result$direction, "\n")
-
-# # ONLY NEGATIVE (ALL DATA)
-# negative_mask <- merged_df$club_overall_sent == "negative"
-# negative_result <- is_kendall_monotonic_fast(
-#   merged_df$club_sent_cat[negative_mask], 
-#   merged_df$non_club_sent_cat[negative_mask]
-# )
-# cat("ONLY NEGATIVE (ALL DATA): Kendall's tau =", negative_result$kendall_tau, 
-#     ", p-value =", negative_result$p_value, 
-#     ", Significant =", negative_result$significant_monotonic,
-#     ", Direction =", negative_result$direction, "\n")
-
-
-# ####################################
-# # OTHER ANALYSES TO MEASURE POS OR NEG STRONGER
-# #################################
-
-# new_df <- merged_df
-# new_df$club_sent_cat[which(new_df$club_sent_cat == 1)] <- "negative"
-# new_df$club_sent_cat[which(new_df$club_sent_cat == 2)] <- "neutral"
-# new_df$club_sent_cat[which(new_df$club_sent_cat == 3)] <- "positive"
-
-# # Create a contingency table
-# cont_table <- table(new_df$club_sent_cat, new_df$non_club_overall_sent)
-# print("Contingency table:")
-# print(cont_table)
-
-# # Calculate Pearson residuals
-# chisq_test <- chisq.test(cont_table)
-# pearson_residuals <- chisq_test$residuals
-# print("Pearson residuals (strength of association for each cell):")
-# print(pearson_residuals)
-
-# # Calculate and print the strongest associations
-# cat("\nStrength of association by emotion type:\n")
-# cat("Negative emotion correlation strength:", pearson_residuals["negative", "negative"], "\n")
-# cat("Positive emotion correlation strength:", pearson_residuals["positive", "positive"], "\n")
-# cat("Neutral emotion correlation strength:", pearson_residuals["neutral", "neutral"], "\n")
-
-
-# ############
-
-
-# # Assuming merged_df is your dataframe with the paired data
-
-# new_df <- merged_df
-# new_df$club_sent_cat[which(new_df$club_sent_cat == 1)] <- "negative"
-# new_df$club_sent_cat[which(new_df$club_sent_cat == 2)] <- "neutral"
-# new_df$club_sent_cat[which(new_df$club_sent_cat == 3)] <- "positive"
-
-# # First, let's examine the structure of our categorical variables
-# print("Unique values in club_sent_cat:")
-# print(unique(new_df$club_sent_cat))
-# print("Unique values in non_club_overall_sent:")
-# print(unique(new_df$non_club_overall_sent))
-
-# # Extract the pairs where club_sent_cat is either "positive" or "negative" 
-# # (assuming these correspond to your original 1 and 3)
-# subset_df <- new_df[new_df$club_sent_cat %in% c("positive", "negative"), ]
-
-# # Part 1: Descriptive analysis - Contingency table
-# # Creating a contingency table
-# contingency_table <- table(subset_df$club_sent_cat, subset_df$non_club_overall_sent)
-# print("Contingency Table:")
-# print(contingency_table)
-
-# # Calculating proportions within each club_sent_cat group
-# prop_table <- prop.table(contingency_table, margin = 1)
-# print("\nProportions Table (by row):")
-# print(prop_table)
-
-# # Part 2: Statistical Testing
-
-# # Chi-square test of independence 
-# chisq_result <- chisq.test(contingency_table)
-# print("\nChi-square Test of Independence:")
-# print(chisq_result)
-
-# # For paired data, we should consider the Stuart-Maxwell test
-# # which is an extension of McNemar's test for more than 2 categories
-# # We need the 'coin' package for this
-# if (!requireNamespace("coin", quietly = TRUE)) {
-#   install.packages("coin")
-# }
-# library(coin)
-
-# # Convert data to a format suitable for the test
-# # For the Stuart-Maxwell test, we need to reshape the data
-# # to have one row per pair and columns for each variable
-# paired_data <- data.frame(
-#   club_cat = subset_df$club_sent_cat,
-#   non_club_cat = subset_df$non_club_overall_sent
-# )
-
-# # Stuart-Maxwell test (marginal homogeneity test)
-# # First make sure both variables have the same levels
-# # Check what values are in club_cat
-# print("Unique values in club_cat:")
-# print(unique(paired_data$club_cat))
-
-# # Assuming club_cat has same text values (positive, negative, neutral)
-# paired_data$club_cat <- factor(paired_data$club_cat, levels = c("negative", "neutral", "positive"))
-# paired_data$non_club_cat <- factor(paired_data$non_club_cat, levels = c("negative", "neutral", "positive"))
-
-# # Creating a contingency table for the paired data
-# paired_table <- table(paired_data$club_cat, paired_data$non_club_cat)
-# print("\nContingency Table for Paired Data:")
-# print(paired_table)
-
-
-
-
 #######################################################################
 # Linguistic feature testing with Kendall's Tau #######################
 #######################################################################
@@ -819,83 +437,10 @@ cat("Z statistic:", round(result$z_statistic, 3), "\n")
 cat("P-value:", format(result$p_value, scientific = TRUE), "\n")
 cat("Significant difference:", result$significant, "\n")
 
-## MORE INTENSIVE USING BOOTSTRAP
-
-# This code creates a function that:
-#   
-#   Takes bootstrap samples from both the during-match and outside-match data
-# Uses your fast Kendall's tau function on each sample
-# Computes the difference between the coefficients in each bootstrap iteration
-# Calculates a p-value and confidence interval for the difference
-
-# 
-# # Test the difference between two Kendall's tau values
-# # First, let's define a function to calculate the confidence interval for the difference
-# 
-# test_tau_difference <- function(data, feature_football, feature_nonfootball, n_bootstraps = 1000) {
-#   # Prepare data
-#   during_match_data <- data[data$during_match == TRUE, ]
-#   outside_match_data <- data[data$during_match == FALSE, ]
-#   
-#   # Initialize arrays to store bootstrap values
-#   during_tau_values <- numeric(n_bootstraps)
-#   outside_tau_values <- numeric(n_bootstraps)
-#   
-#   # Bootstrap procedure
-#   for (i in 1:n_bootstraps) {
-#     # Sample with replacement from during match data
-#     during_indices <- sample(nrow(during_match_data), nrow(during_match_data), replace = TRUE)
-#     during_sample <- during_match_data[during_indices, ]
-#     
-#     # Sample with replacement from outside match data
-#     outside_indices <- sample(nrow(outside_match_data), nrow(outside_match_data), replace = TRUE)
-#     outside_sample <- outside_match_data[outside_indices, ]
-#     
-#     # Calculate tau using your fast function for during match
-#     during_result <- is_kendall_monotonic_fast(
-#       during_sample[[feature_football]], 
-#       during_sample[[feature_nonfootball]],
-#       sample_size = 5000,
-#       show_progress = FALSE
-#     )
-#     during_tau_values[i] <- during_result$kendall_tau
-#     
-#     # Calculate tau using your fast function for outside match
-#     outside_result <- is_kendall_monotonic_fast(
-#       outside_sample[[feature_football]], 
-#       outside_sample[[feature_nonfootball]],
-#       sample_size = 5000,
-#       show_progress = FALSE
-#     )
-#     outside_tau_values[i] <- outside_result$kendall_tau
-#   }
-#   
-#   # Calculate difference in bootstrap samples
-#   difference_values <- during_tau_values - outside_tau_values
-#   
-#   # Calculate observed difference (from your table)
-#   observed_difference <- 0.125 - 0.065
-#   
-#   # Calculate p-value (two-tailed test)
-#   p_value <- mean(abs(difference_values) >= abs(observed_difference))
-#   
-#   # Create confidence interval
-#   confidence_interval <- quantile(difference_values, c(0.025, 0.975))
-#   
-#   # Return results
-#   return(list(
-#     observed_difference = observed_difference,
-#     bootstrap_mean_difference = mean(difference_values),
-#     p_value = p_value,
-#     confidence_interval = confidence_interval,
-#     difference_values = difference_values
-#   ))
-# }
-
-
+## MORE INTENSIVE USING BOOTSTRAP - DO NOT USE
 
 ###############
-# LETS GET POSTS
+# GET POSTS FOR QUAL EXAMINATION
 ##############
 
 if(any(is.na(combined_df$club_toxicity_score))) {
@@ -1001,7 +546,7 @@ create_latex_table <- function(df, caption = "Paired toxic comments from club an
   return(latex_output)
 }
 
-# Use the function on your dataframe
+# create latex table (never really used in the end)
 latex_table <- create_latex_table(toxic_negative_pairs_no_foot)
 
 # Write to a file
@@ -1061,7 +606,7 @@ create_latex_table <- function(df, caption = "Paired toxic comments from club an
   return(latex_output)
 }
 
-# Use the function on your dataframe
+# create latex table
 latex_table <- create_latex_table(toxic_negative_pairs_no_foot)
 
 # Write to a file
@@ -1073,7 +618,7 @@ writeLines(latex_table, "toxic_pairs_latex_table.tex")
 negative_pairs <- intersect(which(combined_df$club_overall_sent == "negative"), which(combined_df$non_club_overall_sent == "negative"))
 negative_pairs_df <- combined_df[c(negative_pairs),]
 
-# Assuming negative_pairs_df is your dataframe
+# negative_pairs_df is dataframe
 # Create a new column that scores the pair based on both positive values
 negative_pairs_df$combined_positive_score <- negative_pairs_df$club_positive * negative_pairs_df$non_club_positive
 
@@ -1101,7 +646,7 @@ ordered_pairs <- ordered_pairs[,-c(which(names(ordered_pairs) %in% c(col_to_drop
 positive_pairs <- intersect(which(combined_df$club_overall_sent == "positive"), which(combined_df$non_club_overall_sent == "positive"))
 positive_pairs_df <- combined_df[c(positive_pairs),]
 
-# Assuming positive_pairs_df is your dataframe
+# positive_pairs_df is dataframe
 # Create a new column that scores the pair based on both positive values
 positive_pairs_df$combined_positive_score <- positive_pairs_df$club_positive * positive_pairs_df$non_club_positive
 
@@ -1161,162 +706,181 @@ ordered_pairs <- ordered_pairs[-c(which(ordered_pairs$non_club_subreddit %in% c(
 #   theme_minimal()
 
 
-###############
-# plots
-################
+# ###############
+# # plots
+# ################
 
-library(dplyr)
-library(tidyr)
-library(ggplot2)
+# library(dplyr)
+# library(tidyr)
+# library(ggplot2)
 
-# Calculate proportions for each feature, split by match status
-proportion_data <- toxic_features %>%
-  # Convert during_match to logical if it's a factor
-  mutate(during_match_bool = as.logical(during_match)) %>%
-  group_by(during_match_bool) %>%
-  summarize(
-    # Profanity 
-    football_profanity_rate = mean(football_profanity > 0, na.rm = TRUE),
-    nonfootball_profanity_rate = mean(nonfootball_profanity > 0, na.rm = TRUE),
+# # Calculate proportions for each feature, split by match status
+# proportion_data <- toxic_features %>%
+#   # Convert during_match to logical if it's a factor
+#   mutate(during_match_bool = as.logical(during_match)) %>%
+#   group_by(during_match_bool) %>%
+#   summarize(
+#     # Profanity 
+#     football_profanity_rate = mean(football_profanity > 0, na.rm = TRUE),
+#     nonfootball_profanity_rate = mean(nonfootball_profanity > 0, na.rm = TRUE),
     
-    # Violent
-    football_violent_rate = mean(football_violent > 0, na.rm = TRUE),
-    nonfootball_violent_rate = mean(nonfootball_violent > 0, na.rm = TRUE),
+#     # Violent
+#     football_violent_rate = mean(football_violent > 0, na.rm = TRUE),
+#     nonfootball_violent_rate = mean(nonfootball_violent > 0, na.rm = TRUE),
     
-    # Intensifiers
-    football_intensifiers_rate = mean(football_intensifiers > 0, na.rm = TRUE),
-    nonfootball_intensifiers_rate = mean(nonfootball_intensifiers > 0, na.rm = TRUE),
+#     # Intensifiers
+#     football_intensifiers_rate = mean(football_intensifiers > 0, na.rm = TRUE),
+#     nonfootball_intensifiers_rate = mean(nonfootball_intensifiers > 0, na.rm = TRUE),
     
-    # Exclamations
-    football_exclamations_rate = mean(football_exclamations > 0, na.rm = TRUE),
-    nonfootball_exclamations_rate = mean(nonfootball_exclamations > 0, na.rm = TRUE),
+#     # Exclamations
+#     football_exclamations_rate = mean(football_exclamations > 0, na.rm = TRUE),
+#     nonfootball_exclamations_rate = mean(nonfootball_exclamations > 0, na.rm = TRUE),
     
-    # Caps
-    football_caps_rate = mean(football_caps_words > 0, na.rm = TRUE),
-    nonfootball_caps_rate = mean(nonfootball_caps_words > 0, na.rm = TRUE)
-  ) %>%
-  mutate(match_status = ifelse(during_match_bool, "During Match", "Outside Match"))
+#     # Caps
+#     football_caps_rate = mean(football_caps_words > 0, na.rm = TRUE),
+#     nonfootball_caps_rate = mean(nonfootball_caps_words > 0, na.rm = TRUE)
+#   ) %>%
+#   mutate(match_status = ifelse(during_match_bool, "During Match", "Outside Match"))
 
-# Now continue with the rest of the code
-# Reshape data for plotting proportions
-proportion_long <- proportion_data %>%
-  pivot_longer(
-    cols = -c(match_status, during_match_bool),
-    names_to = "measure",
-    values_to = "proportion"
-  ) %>%
-  mutate(
-    feature = case_when(
-      grepl("profanity", measure) ~ "Profanity",
-      grepl("violent", measure) ~ "Violent",
-      grepl("intensifiers", measure) ~ "Intensifiers",
-      grepl("exclamations", measure) ~ "Exclamations",
-      grepl("caps", measure) ~ "Caps"
-    ),
-    context = ifelse(grepl("football_", measure), "Football", "Non-football")
-  ) %>%
-  dplyr::select(match_status, feature, context, proportion)
+# # Now continue with the rest of the code
+# # Reshape data for plotting proportions
+# proportion_long <- proportion_data %>%
+#   pivot_longer(
+#     cols = -c(match_status, during_match_bool),
+#     names_to = "measure",
+#     values_to = "proportion"
+#   ) %>%
+#   mutate(
+#     feature = case_when(
+#       grepl("profanity", measure) ~ "Profanity",
+#       grepl("violent", measure) ~ "Violent",
+#       grepl("intensifiers", measure) ~ "Intensifiers",
+#       grepl("exclamations", measure) ~ "Exclamations",
+#       grepl("caps", measure) ~ "Caps"
+#     ),
+#     context = ifelse(grepl("football_", measure), "Football", "Non-football")
+#   ) %>%
+#   dplyr::select(match_status, feature, context, proportion)
 
-# Prepare tau data
-tau_data <- all_results %>%
-  dplyr::select(match_status, feature, kendall_tau) %>%
-  filter(!is.na(kendall_tau))
+# # Prepare tau data
+# tau_data <- all_results %>%
+#   dplyr::select(match_status, feature, kendall_tau) %>%
+#   filter(!is.na(kendall_tau))
 
-# Create first plot: Proportions by feature, context and match status
-proportion_plot <- ggplot(proportion_long, aes(x = feature, y = proportion, fill = interaction(context, match_status))) +
-  geom_bar(stat = "identity", position = position_dodge(width = 0.9)) +
-  scale_fill_brewer(palette = "Set2", name = "Context") +
-  labs(title = "Proportion of Posts Containing Emotional Features",
-       subtitle = "Split by football/non-football and match status",
-       x = "Feature", 
-       y = "Proportion of Posts") +
-  theme_minimal() +
-  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+# # Create first plot: Proportions by feature, context and match status
+# proportion_plot <- ggplot(proportion_long, aes(x = feature, y = proportion, fill = interaction(context, match_status))) +
+#   geom_bar(stat = "identity", position = position_dodge(width = 0.9)) +
+#   scale_fill_brewer(palette = "Set2", name = "Context") +
+#   labs(title = "Proportion of Posts Containing Emotional Features",
+#        subtitle = "Split by football/non-football and match status",
+#        x = "Feature", 
+#        y = "Proportion of Posts") +
+#   theme_minimal() +
+#   theme(axis.text.x = element_text(angle = 45, hjust = 1))
 
-# Create second plot: Kendall's tau by feature and match status
-tau_plot <- ggplot(tau_data, aes(x = feature, y = kendall_tau, fill = match_status)) +
-  geom_bar(stat = "identity", position = position_dodge(width = 0.9)) +
-  scale_fill_brewer(palette = "Set1", name = "Match Status") +
-  labs(title = "Emotional Spillover: Kendall's Tau by Feature",
-       subtitle = "Correlation between football and non-football emotional features",
-       x = "Feature", 
-       y = "Kendall's Tau") +
-  theme_minimal() +
-  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+# # Create second plot: Kendall's tau by feature and match status
+# tau_plot <- ggplot(tau_data, aes(x = feature, y = kendall_tau, fill = match_status)) +
+#   geom_bar(stat = "identity", position = position_dodge(width = 0.9)) +
+#   scale_fill_brewer(palette = "Set1", name = "Match Status") +
+#   labs(title = "Emotional Spillover: Kendall's Tau by Feature",
+#        subtitle = "Correlation between football and non-football emotional features",
+#        x = "Feature", 
+#        y = "Kendall's Tau") +
+#   theme_minimal() +
+#   theme(axis.text.x = element_text(angle = 45, hjust = 1))
 
-# Print both plots
-print(proportion_plot)
-print(tau_plot)
+# # Print both plots
+# print(proportion_plot)
+# print(tau_plot)
 
-###
-# plot of props and tau
-###
+# ###
+# # plot of props and tau
+# ###
 
-library(ggplot2)
-library(dplyr)
-library(gridExtra)
+# library(ggplot2)
+# library(dplyr)
+# library(gridExtra)
 
-# Filter out exclamations from tau data
-tau_plot_data <- all_results %>%
-  filter(!is.na(kendall_tau) & feature != "Exclamations")
+# # Filter out exclamations from tau data
+# tau_plot_data <- all_results %>%
+#   filter(!is.na(kendall_tau) & feature != "Exclamations")
 
-# Create tau plot with properly spaced bars
-tau_plot <- ggplot(tau_plot_data, aes(x = feature, y = kendall_tau, fill = match_status)) +
-  geom_bar(stat = "identity", position = position_dodge(width = 0.9)) +
-  scale_fill_grey(start = 0.3, end = 0.7, name = "Match Status") +
-  labs(title = "Emotional Spillover (Kendall's Tau)",
-       x = NULL, 
-       y = "Kendall's Tau") +
-  theme_minimal() +
-  theme(
-    axis.text.x = element_text(angle = 45, hjust = 1),
-    legend.position = "bottom"
-  )
+# # Create tau plot with properly spaced bars
+# tau_plot <- ggplot(tau_plot_data, aes(x = feature, y = kendall_tau, fill = match_status)) +
+#   geom_bar(stat = "identity", position = position_dodge(width = 0.9)) +
+#   scale_fill_grey(start = 0.3, end = 0.7, name = "Match Status") +
+#   labs(title = "Emotional Spillover (Kendall's Tau)",
+#        x = NULL, 
+#        y = "Kendall's Tau") +
+#   theme_minimal() +
+#   theme(
+#     axis.text.x = element_text(angle = 45, hjust = 1),
+#     legend.position = "bottom"
+#   )
 
-# Calculate proportions manually - but simplify to just have football vs non-football for clarity
-proportion_data <- data.frame(
-  feature = rep(c("Profanity", "Violent", "Intensifiers", "Caps"), each = 4),
-  match_status = rep(rep(c("During Match", "Outside Match"), each = 2), 4),
-  context = rep(c("Football", "Non-football"), 8),
-  proportion = c(
-    # Profanity
-    mean(during_match_data$football_profanity > 0, na.rm = TRUE),
-    mean(during_match_data$nonfootball_profanity > 0, na.rm = TRUE),
-    mean(outside_match_data$football_profanity > 0, na.rm = TRUE),
-    mean(outside_match_data$nonfootball_profanity > 0, na.rm = TRUE),
-    # Violent
-    mean(during_match_data$football_violent > 0, na.rm = TRUE),
-    mean(during_match_data$nonfootball_violent > 0, na.rm = TRUE),
-    mean(outside_match_data$football_violent > 0, na.rm = TRUE),
-    mean(outside_match_data$nonfootball_violent > 0, na.rm = TRUE),
-    # Intensifiers
-    mean(during_match_data$football_intensifiers > 0, na.rm = TRUE),
-    mean(during_match_data$nonfootball_intensifiers > 0, na.rm = TRUE),
-    mean(outside_match_data$football_intensifiers > 0, na.rm = TRUE),
-    mean(outside_match_data$nonfootball_intensifiers > 0, na.rm = TRUE),
-    # Caps
-    mean(during_match_data$football_caps_words > 0, na.rm = TRUE),
-    mean(during_match_data$nonfootball_caps_words > 0, na.rm = TRUE),
-    mean(outside_match_data$football_caps_words > 0, na.rm = TRUE),
-    mean(outside_match_data$nonfootball_caps_words > 0, na.rm = TRUE)
-  )
-)
+# # Calculate proportions manually - but simplify to just have football vs non-football for clarity
+# proportion_data <- data.frame(
+#   feature = rep(c("Profanity", "Violent", "Intensifiers", "Caps"), each = 4),
+#   match_status = rep(rep(c("During Match", "Outside Match"), each = 2), 4),
+#   context = rep(c("Football", "Non-football"), 8),
+#   proportion = c(
+#     # Profanity
+#     mean(during_match_data$football_profanity > 0, na.rm = TRUE),
+#     mean(during_match_data$nonfootball_profanity > 0, na.rm = TRUE),
+#     mean(outside_match_data$football_profanity > 0, na.rm = TRUE),
+#     mean(outside_match_data$nonfootball_profanity > 0, na.rm = TRUE),
+#     # Violent
+#     mean(during_match_data$football_violent > 0, na.rm = TRUE),
+#     mean(during_match_data$nonfootball_violent > 0, na.rm = TRUE),
+#     mean(outside_match_data$football_violent > 0, na.rm = TRUE),
+#     mean(outside_match_data$nonfootball_violent > 0, na.rm = TRUE),
+#     # Intensifiers
+#     mean(during_match_data$football_intensifiers > 0, na.rm = TRUE),
+#     mean(during_match_data$nonfootball_intensifiers > 0, na.rm = TRUE),
+#     mean(outside_match_data$football_intensifiers > 0, na.rm = TRUE),
+#     mean(outside_match_data$nonfootball_intensifiers > 0, na.rm = TRUE),
+#     # Caps
+#     mean(during_match_data$football_caps_words > 0, na.rm = TRUE),
+#     mean(during_match_data$nonfootball_caps_words > 0, na.rm = TRUE),
+#     mean(outside_match_data$football_caps_words > 0, na.rm = TRUE),
+#     mean(outside_match_data$nonfootball_caps_words > 0, na.rm = TRUE)
+#   )
+# )
 
-# Create proportion plot with properly spaced bars
-proportion_plot <- ggplot(proportion_data, aes(x = feature, y = proportion, fill = interaction(match_status, context))) +
-  geom_bar(stat = "identity", position = position_dodge(width = 0.9)) +
-  scale_fill_grey(start = 0.1, end = 0.9, name = "Context") +
-  labs(title = "Proportion of Posts with Emotional Features",
-       x = "Feature", 
-       y = "Proportion") +
-  theme_minimal() +
-  theme(
-    axis.text.x = element_text(angle = 45, hjust = 1),
-    legend.position = "bottom"
-  )
+# # Create proportion plot with properly spaced bars
+# proportion_plot <- ggplot(proportion_data, aes(x = feature, y = proportion, fill = interaction(match_status, context))) +
+#   geom_bar(stat = "identity", position = position_dodge(width = 0.9)) +
+#   scale_fill_grey(start = 0.1, end = 0.9, name = "Context") +
+#   labs(title = "Proportion of Posts with Emotional Features",
+#        x = "Feature", 
+#        y = "Proportion") +
+#   theme_minimal() +
+#   theme(
+#     axis.text.x = element_text(angle = 45, hjust = 1),
+#     legend.position = "bottom"
+#   )
 
-# Arrange plots together
-grid.arrange(proportion_plot, tau_plot, ncol = 1)
+# # Arrange plots together
+# grid.arrange(proportion_plot, tau_plot, ncol = 1)
+
+# # Create data frame of tau values
+# spillover_df <- data.frame(
+#   feature = c("Profanity", "Violent", "Intensifiers", "Exclamations", "Caps"),
+#   during_tau = c(0.125, 0.031, 0.096, 0.174, 0.095),
+#   outside_tau = c(0.065, 0.007, 0.053, 0.129, 0.058)
+# )
+
+# # Create visualization
+# ggplot(spillover_df, aes(x = feature)) +
+#   geom_bar(aes(y = during_tau, fill = "During Match"), stat = "identity", position = "dodge") +
+#   geom_bar(aes(y = outside_tau, fill = "Outside Match"), stat = "identity", position = "dodge") +
+#   labs(title = "Emotional Spillover by Linguistic Feature",
+#        subtitle = "Kendall's tau values for football → non-football correlation",
+#        x = "Linguistic Feature", 
+#        y = "Kendall's tau") +
+#   theme_minimal() +
+#   coord_flip()
+
 
 
 ###################################################
@@ -1344,6 +908,7 @@ user_toxicity$contagion_score <- with(user_toxicity,
 ###################################################
 # diff-in-diff
 # Compare the difference in toxic language during matches vs. not during matches
+# This wasn't used - just duplicating results already found.
 
 # For both football and non-football contexts
 did_analysis <- toxic_features %>%
@@ -1373,145 +938,10 @@ summary(did_model)
 
 #This tests:
 # 
-#  β3β3​ (during_match:club_sentiment) → Whether club-related sentiment changes during matches differently from non-club sentiment.
+#  β3β3​ (during_match:club_sentiment). i.e. whether club-related sentiment changes during matches differently from non-club sentiment.
 
-# 
-# Interpretation of the Model
-# 
-# Your regression model:
-#   \text{sentiment_score} = \beta_0 + \beta_1 \text{during_match} + \beta_2 \text{club_sentiment} + \beta_3 (\text{during_match} \times \text{club_sentiment}) + \epsilon
-# 
-# (Intercept) = -0.118
-# 
-# This is the baseline sentiment score when during_match = FALSE and club_sentiment = 0 (i.e., non-club sentiment during non-match times).
-# 
-# The average sentiment in this group is slightly negative.
-# 
 # during_matchTRUE = -0.019 (significant)
 # 
 # When a post is made during a match, sentiment scores decrease by 0.019 on average.
 # 
-# This suggests that overall sentiment is slightly more negative during matches.
-# 
-# club_sentiment = 0.015 (significant)
-# 
-# Club-related sentiment scores are, on average, 0.015 higher than non-club sentiment scores, controlling for match timing.
-# 
-# This suggests that club-related discussions tend to be slightly more positive.
-# 
-# during_matchTRUE:club_sentiment = -0.015 (significant)
-# 
-# This is the DiD effect: The change in club sentiment scores during matches compared to non-club sentiment.
-# 
-# It is negative, meaning that club sentiment decreases more during matches than non-club sentiment.
-# 
-# The magnitude is -0.015, which suggests that the sentiment gap between club and non-club content narrows slightly during matches.
-# 
-# Summary of Findings
-# 
-# Overall sentiment declines during matches (-0.019).
-# 
-# Club-related sentiment is generally more positive than non-club sentiment (+0.015).
-# 
-# During matches, club sentiment declines relative to non-club sentiment (-0.015), but not as much as general sentiment.
-
-
-# Create data frame of tau values
-spillover_df <- data.frame(
-  feature = c("Profanity", "Violent", "Intensifiers", "Exclamations", "Caps"),
-  during_tau = c(0.125, 0.031, 0.096, 0.174, 0.095),
-  outside_tau = c(0.065, 0.007, 0.053, 0.129, 0.058)
-)
-
-# Create visualization
-ggplot(spillover_df, aes(x = feature)) +
-  geom_bar(aes(y = during_tau, fill = "During Match"), stat = "identity", position = "dodge") +
-  geom_bar(aes(y = outside_tau, fill = "Outside Match"), stat = "identity", position = "dodge") +
-  labs(title = "Emotional Spillover by Linguistic Feature",
-       subtitle = "Kendall's tau values for football → non-football correlation",
-       x = "Linguistic Feature", 
-       y = "Kendall's tau") +
-  theme_minimal() +
-  coord_flip()
-
-
-###########################
-# keyness
-
-
-library(quanteda)
-library(quanteda.textplots)
-
-library(quanteda)
-library(dplyr)
-
-# Create a data frame with paired document IDs
-dfm_data <- data.frame(
-  text = c(merged_df$club_body, merged_df$non_club_body),
-  docname = c(paste0("fc_", 1:nrow(merged_df)), paste0("nonfc_", 1:nrow(merged_df))),
-  is_football = c(rep(TRUE, nrow(merged_df)), rep(FALSE, nrow(merged_df))),
-  during_match = c(merged_df$during_match, merged_df$during_match),  # Duplicating the during_match variable
-  row_id = c(1:nrow(merged_df), 1:nrow(merged_df))  # To keep track of pairs
-)
-
-# Create corpus with metadata
-corpus_paired <- corpus(dfm_data$text, 
-                        docnames = dfm_data$docname)
-
-# Add document variables
-docvars(corpus_paired, "is_football") <- dfm_data$is_football
-docvars(corpus_paired, "during_match") <- dfm_data$during_match
-docvars(corpus_paired, "row_id") <- dfm_data$row_id
-
-# Create tokens
-tokens_paired <- tokens(corpus_paired, 
-                        remove_punct = TRUE,
-                        remove_numbers = TRUE,
-                        remove_symbols = TRUE) %>%
-  tokens_remove(stopwords("english"))
-
-# Create DFM
-dfm_paired <- dfm(tokens_paired)
-
-# Trim sparse terms for more manageable analysis
-dfm_paired_trimmed <- dfm_trim(dfm_paired, min_docfreq = 5, min_termfreq = 10)
-
-# Check the dimensions of the resulting DFM
-dim(dfm_paired_trimmed)
-
-# View a sample of the docnames to confirm they're correct
-head(docnames(dfm_paired_trimmed), 10)
-
-
-# Assuming you have a DFM with a docvar indicating match status and post type
-# Create keyness comparison for football posts during vs. outside match
-keyness_match_status <- textstat_keyness(dfm_paired_trimmed, 
-                                         target = dfm_paired_trimmed$during_match == TRUE,
-                                         measure = "lr") # Log-likelihood ratio
-
-
-# Plot the top distinctive features
-textplot_keyness(keyness_match_status, n = 20)
-
-
-dfm_nonfootball <- dfm_subset(dfm_paired_trimmed, is_football == FALSE)
-
-# Assuming you have a DFM with a docvar indicating match status and post type
-# Create keyness comparison for football posts during vs. outside match
-keyness_match_status <- textstat_keyness(dfm_nonfootball, 
-                                         target = dfm_nonfootball$during_match == FALSE,
-                                         measure = "lr") # Log-likelihood ratio
-
-
-# Plot the top distinctive features
-textplot_keyness(keyness_match_status, n = 20)
-
-###
-
-# Similarly for football vs. non-football during matches
-keyness_post_type <- textstat_keyness(dfm_paired_trimmed[dfm_paired_trimmed$during_match == TRUE,], 
-                                      target = dfm_paired_trimmed$is_football == TRUE)
-textplot_keyness(keyness_post_type, n = 20)
-
-
 
