@@ -1,3 +1,8 @@
+##############################################################################
+# Linguistic Feature Extraction and Analysis (using quanteda)
+##############################################################################
+# This section corresponds to Table 9 in the paper.
+
 library(ggplot2)
 library(dplyr)
 library(lubridate)
@@ -51,13 +56,6 @@ combined_df$during_match <- merged_df$during_match[matches]
 # For rows where during_match is TRUE, set the result
 combined_df$result <- merged_df$current_result[matches]
 
-####################
-
-table(combined_df$club_overall_sent)
-table(combined_df$non_club_overall_sent)
-
-####################
-
 merged_df <- combined_df
 
 # USE BELOW IF YOU WANT TO CHECK WITHOUT FOOTBALL SUBS!
@@ -101,12 +99,7 @@ merged_df$non_club_sentiment_index <-
   (merged_df$non_club_positive - merged_df$non_club_negative) / 
   (merged_df$non_club_positive + merged_df$non_club_neutral + merged_df$non_club_negative)
 
-sort(table(merged_df$non_club_subreddit), decreasing = T)[1:25]
-
 ###
-
-
-# cor(merged_df$club_weighted_average_sent, merged_df$non_club_weighted_average_sent)
 
 # ####
 # # check if monotonic for kendall
@@ -489,13 +482,31 @@ sort(table(merged_df$non_club_subreddit), decreasing = T)[1:25]
 
 
 
-##################################
-########################################################################
-# NLP NLP NLP################################################
-########################################################################
 
+#######################################################################
+# Linguistic feature testing with Kendall's Tau #######################
+#######################################################################
 
+# Kendall's Tau is used a multi-step approach:
 
+# Step 1
+# Separation of Data: First, the dataset is split into two distinct groups:
+# 1) All post pairs created during a match.
+# 2) All post pairs created outside of a match.
+
+# Step 2
+# Separate Correlation Analysis: Kendall's Tau is then run independently on each group.
+# 1) For the "During Match" group, it calculates the correlation (τ_during) of profanity (etc.) counts between club posts and non-club posts. This number reports: "During a match, how strong is the 'spillover' of a user's profanity?"
+# 2) For the "Outside Match" group, it calculates a separate correlation (τ_outside). This reports: "When there's no match, what is the baseline 'spillover' of a user's profanity?"
+
+# Step 3
+# Comparison of Results: The "difference" is the comparison between the two resulting correlation coefficients (τ_during vs. τ_outside). 
+# The table shows these two numbers side-by-side so you can see that the correlation (the spillover effect) is consistently stronger during a match. 
+# The Delta_Tau (Δτ) column is the simple subtraction of these two numbers to quantify that difference.
+
+# A way to show that the strength of the relationship between a user's language in two different contexts changes depending on the real-world event of a football match.
+
+# Why Kendall's Tau? Data is not normally distributed; loads of ties (0s and 1s for the various linguistuic features), 
 
 
 # First, let's create all the basic linguistic features using standard text processing
@@ -505,9 +516,9 @@ toxic_features <- merged_df %>%
     football_exclamations = stringr::str_count(club_body, "!"),
     nonfootball_exclamations = stringr::str_count(non_club_body, "!"),
     
-    # ALL CAPS words (shouting)
-    football_caps_words = stringr::str_count(club_body, "\\b[A-Z]{2,}\\b"),
-    nonfootball_caps_words = stringr::str_count(non_club_body, "\\b[A-Z]{2,}\\b"),
+    # ALL CAPS words (shouting) (3 letters or more. 2 may include FT HT OT, etc.)
+    football_caps_words = stringr::str_count(club_body, "\\b[A-Z]{3,}\\b"),
+    nonfootball_caps_words = stringr::str_count(non_club_body, "\\b[A-Z]{3,}\\b"),
     
     # Question marks
     football_questions = stringr::str_count(club_body, "\\?"),
@@ -517,14 +528,6 @@ toxic_features <- merged_df %>%
 
 bad_words <- read.csv("../Datasets/list_of_naughty-OaOBW_en.csv")
 
-
-# # Create the dictionaries first
-# dict_toxic <- dictionary(list(
-#   profanity = c("fuck*", "shit*", "cunt*", "damn*", "ass*", "dick*"),
-#   slurs = c("idiot*", "stupid*", "moron*", "useless", "pathetic", "disgrace", "fag*", 
-#             "gay", "nigger", "nigga", "pussy", "homo*"),
-#   violent = c("kill*", "die*", "murder*", "attack*", "destroy*", "hate*", "ruin*", "merc")
-# ))
 
 dict_toxic <- dictionary(list(
   profanity = c(bad_words$X2g1c),
@@ -611,14 +614,8 @@ toxic_summary
 #   scale_fill_manual(values = c("Football" = "red", "Non-football" = "blue"),
 #                     name = "Context")
 
+# Use the fast Kendall function previously used (3-measuring_kendalls_tau_across_subs.r)
 
-
-
-
-###2
-
-
-# Use the fast Kendall function you provided
 is_kendall_monotonic_fast <- function(x, y, sample_size = NULL, show_progress = TRUE) {
   n <- length(x)
   
@@ -732,7 +729,7 @@ process_features <- function(data_split, match_label) {
     correlation <- is_kendall_monotonic_fast(
       x[valid_idx], 
       y[valid_idx],
-      sample_size = 5000,  # Optional sampling for very large datasets
+      #sample_size = 5000,  # Optional sampling for very large datasets
       show_progress = TRUE
     )
     
@@ -772,14 +769,13 @@ all_results <- rbind(match_results, nonmatch_results)
 library(knitr)
 kable(all_results, digits = c(NA, NA, 3, 4, NA, NA))
 
-######
-# cluband non club
 
 
 #################
 # check if the differences are statistically significant between during and not during.
+# i.e., "If there were truly no difference in the strength of correlation between the 'during' and 'outside' match conditions, how likely would we be to see a difference this large just by random chance?"
 
-# SIMPLE LESS COMPUTATIONALLY INTENSIVE VERSION:
+# SIMPLE LESS COMPUTATIONALLY INTENSIVE VERSION RATHER THAN BOOTSTRAPPING WHICH WAS TOO COMPUTATIONALY INTENSIVE FOR THIS DATA
 
 # Fisher's z-transformation to compare correlation coefficients
 compare_correlations <- function(r1, r2, n1, n2) {
@@ -810,7 +806,12 @@ compare_correlations <- function(r1, r2, n1, n2) {
 
 # During match: tau = 0.125, n = 234024
 # Outside match: tau = 0.065, n = 341839
-result <- compare_correlations(0.125, 0.065, 234024, 341839)
+result <- compare_correlations(0.109, 0.061, 234024, 341839)
+result <- compare_correlations(0.049, 0.022, 234024, 341839)
+result <- compare_correlations(0.074, 0.059, 234024, 341839)
+result <- compare_correlations(0.154, 0.124, 234024, 341839)
+result <- compare_correlations(0.133, 0.0515, 234024, 341839)
+
 
 # Print results
 cat("Fisher's z-transformation test:\n")
@@ -891,7 +892,7 @@ cat("Significant difference:", result$significant, "\n")
 #   ))
 # }
 
-# THE BELOW TAKES LOADS OF TIME AND ISN'T STAT SIG
+
 
 ###############
 # LETS GET POSTS
