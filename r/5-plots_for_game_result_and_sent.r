@@ -114,7 +114,7 @@ plot_before_after <- function(data_for_result, title_suffix) {
   
   ggplot(data_for_result, aes(y = llm_score, x = status)) +
     geom_boxplot(fill = "gray80", outlier.shape = NA, width = 0.6) + # No outliers plotted directly for cleaner look
-    geom_jitter(alpha = 0.05, width = 0.1, size = 0.5, color = "gray50") + # Subtle jitter
+    #geom_jitter(alpha = 0.05, width = 0.1, size = 0.5, color = "gray50") + # Subtle jitter
     geom_smooth(method = "lm", se = FALSE, aes(group = 1), color = "black", linetype = "solid", linewidth = 0.8) +
     labs(
       title = paste("Sentiment 24 Hours\nBefore and After a", title_suffix),
