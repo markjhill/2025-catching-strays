@@ -147,6 +147,43 @@ posts_around_games %>%
   mutate(median_change = After - Before) %>%
   print()
 
+#############
+# FOR POSTER
+############
+
+# Create individual box plots
+plot_before_after <- function(data_for_result, title_suffix) {
+  p_value_text <- get_ttest_pvalue_text(data_for_result)
+  
+  ggplot(data_for_result, aes(y = llm_score, x = status)) +
+    geom_boxplot(fill = "gray80", outlier.shape = NA, width = 0.6) + # No outliers plotted directly for cleaner look
+    #geom_jitter(alpha = 0.05, width = 0.1, size = 0.5, color = "gray50") + # Subtle jitter
+    geom_smooth(method = "lm", se = FALSE, aes(group = 1), color = "black", linetype = "solid", linewidth = 0.8) +
+    labs(
+      title = title_suffix,
+      subtitle = p_value_text,
+      y = "Sentiment Score",
+      x = ""
+    ) +
+    theme_custom_minimal +
+    theme(plot.title = element_text(size=12)) # Smaller title for combined plot
+}
+
+# Create the three plots
+loss_24_plot <- plot_before_after(posts_around_games %>% filter(result_label == "Loss"), "Loss")
+draw_24_plot <- plot_before_after(posts_around_games %>% filter(result_label == "Draw"), "Draw") +
+  labs(y = NULL)  # remove y-axis label
+win_24_plot  <- plot_before_after(posts_around_games %>% filter(result_label == "Win"), "Win") +
+  labs(y = NULL)  # remove y-axis label
+
+# Combine plots for Figure 2
+figure2_combined_hor <- ggarrange(loss_24_plot, draw_24_plot, win_24_plot,
+                              ncol = 3, nrow = 1, common.legend = TRUE) %>%
+  annotate_figure(top = text_grob("Post Sentiment by Match Result (48 hour window)",
+                                  size = 16, family = "Times", face = "bold"))
+
+print(figure2_combined_hor)
+
 
 # -----------------------------------------------------------------------------
 # 4. Figure 3: Average Sentiment During a Game by Result
